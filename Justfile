@@ -34,15 +34,16 @@ install:
     # main binary
     install -Dm0755 {{ cargo-target-dir }}/release/cosmic-session {{ bindir }}/cosmic-session
 
-    # session start script
+    # session start scripts
     install -Dm0755 data/start-cosmic {{ bindir }}/start-cosmic
+    install -Dm0755 data/zinc-session {{ bindir }}/zinc-session
     sed -i "s|DCONF_PROFILE=cosmic|DCONF_PROFILE={{ cosmic_dconf_profile }}|" {{ bindir }}/start-cosmic
 
     # systemd target
     install -Dm0644 data/cosmic-session.target {{ systemddir }}/cosmic-session.target
 
     # session
-    install -Dm0644 data/cosmic.desktop {{ sessiondir }}/cosmic.desktop
+    install -Dm0644 data/zinc.desktop {{ sessiondir }}/zinc.desktop
 
     # mimeapps
     install -Dm0644 data/cosmic-mimeapps.list {{ applicationdir }}/cosmic-mimeapps.list

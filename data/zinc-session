@@ -1,0 +1,9 @@
+#!/bin/sh
+set -e
+
+# Ensure the local prefix is preferred over the distro-installed binaries,
+# then reuse the existing session environment setup.
+BINDIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+PATH="${BINDIR}:${PATH}"
+export PATH
+exec "${BINDIR}/start-cosmic" "$@"

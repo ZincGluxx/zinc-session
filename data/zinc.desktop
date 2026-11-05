@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Zinc Desktop
+Comment=Log in to the Zinc desktop
+Exec=zinc-session
+TryExec=zinc-session
+Type=Application
+DesktopNames=Zinc;
