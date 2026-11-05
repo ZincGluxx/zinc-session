@@ -7,6 +7,7 @@ mod comp;
 mod notifications;
 mod process;
 mod service;
+mod startup;
 #[cfg(feature = "systemd")]
 mod systemd;
 
@@ -15,6 +16,7 @@ use color_eyre::eyre::WrapErr;
 use launch_pad::ProcessManager;
 use launch_pad::process::Process;
 use service::SessionRequest;
+use startup::{PRELOAD_LAUNCHERS_ENV, StartupPolicy};
 use std::borrow::Cow;
 use std::env;
 use std::os::fd::AsRawFd;
@@ -328,32 +330,94 @@ async fn start(
 	);
 	drop(guard);
 
-	let span = info_span!(parent: None, "cosmic-app-library");
-	start_component("cosmic-app-library", span, &process_manager, &env_vars).await;
+	let preload_launchers_env = env::var(PRELOAD_LAUNCHERS_ENV).ok();
+	let startup_policy = StartupPolicy::from_env_value(preload_launchers_env.as_deref());
+	info!(
+		preload_launchers_env = preload_launchers_env.as_deref().unwrap_or("<unset>"),
+		preload_launchers = startup_policy.preload_launchers(),
+		"selected startup policy"
+	);
+	if !startup_policy.preload_launchers() {
+		info!(
+			"app library, launcher, and workspaces will start on demand; set \
+			 {PRELOAD_LAUNCHERS_ENV}=1 to preload them eagerly"
+		);
+	}
 
-	let span = info_span!(parent: None, "cosmic-launcher");
-	start_component("cosmic-launcher", span, &process_manager, &env_vars).await;
+	// The notifications daemon and panel must establish their notification
+	// socket pair before independent components start. Everything below is
+	// independent and can make progress concurrently.
+	let start_bg = start_component_future(
+		"cosmic-bg",
+		info_span!(parent: None, "cosmic-bg"),
+		&process_manager,
+		&env_vars,
+	);
+	let start_osd = start_component_future(
+		"cosmic-osd",
+		info_span!(parent: None, "cosmic-osd"),
+		&process_manager,
+		&env_vars,
+	);
+	let start_osk = start_component_future(
+		"cosmic-osk",
+		info_span!(parent: None, "cosmic-osk"),
+		&process_manager,
+		&env_vars,
+	);
+	let start_greeter = start_component_future(
+		"cosmic-greeter",
+		info_span!(parent: None, "cosmic-greeter"),
+		&process_manager,
+		&env_vars,
+	);
+	let start_files_applet = start_component_future(
+		"cosmic-files-applet",
+		info_span!(parent: None, "cosmic-files-applet"),
+		&process_manager,
+		&env_vars,
+	);
+	let start_idle = start_component_future(
+		"cosmic-idle",
+		info_span!(parent: None, "cosmic-idle"),
+		&process_manager,
+		&env_vars,
+	);
+	let start_launcher_group = async {
+		if startup_policy.preload_launchers() {
+			info!("eagerly preloading app library, launcher, and workspaces");
+			tokio::join!(
+				start_component_future(
+					"cosmic-app-library",
+					info_span!(parent: None, "cosmic-app-library"),
+					&process_manager,
+					&env_vars,
+				),
+				start_component_future(
+					"cosmic-launcher",
+					info_span!(parent: None, "cosmic-launcher"),
+					&process_manager,
+					&env_vars,
+				),
+				start_component_future(
+					"cosmic-workspaces",
+					info_span!(parent: None, "cosmic-workspaces"),
+					&process_manager,
+					&env_vars,
+				),
+			);
+		}
+	};
 
-	let span = info_span!(parent: None, "cosmic-workspaces");
-	start_component("cosmic-workspaces", span, &process_manager, &env_vars).await;
-
-	let span = info_span!(parent: None, "cosmic-osd");
-	start_component("cosmic-osd", span, &process_manager, &env_vars).await;
-
-	let span = info_span!(parent: None, "cosmic-osk");
-	start_component("cosmic-osk", span, &process_manager, &env_vars).await;
-
-	let span = info_span!(parent: None, "cosmic-bg");
-	start_component("cosmic-bg", span, &process_manager, &env_vars).await;
-
-	let span = info_span!(parent: None, "cosmic-greeter");
-	start_component("cosmic-greeter", span, &process_manager, &env_vars).await;
-
-	let span = info_span!(parent: None, "cosmic-files-applet");
-	start_component("cosmic-files-applet", span, &process_manager, &env_vars).await;
-
-	let span = info_span!(parent: None, "cosmic-idle");
-	start_component("cosmic-idle", span, &process_manager, &env_vars).await;
+	tokio::join!(
+		start_bg,
+		start_osd,
+		start_osk,
+		start_greeter,
+		start_files_applet,
+		start_idle,
+		start_launcher_group,
+	);
 
 	#[cfg(feature = "autostart")]
 	if !*is_systemd_used() {
@@ -505,6 +569,17 @@ async fn start(
 
 	tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 	Ok(status)
+}
+
+fn start_component_future<'a>(
+	cmd: &'static str,
+	span: tracing::Span,
+	process_manager: &'a ProcessManager,
+	env_vars: &'a [(String, String)],
+) -> impl std::future::Future<Output = ()> + 'a {
+	async move {
+		start_component(cmd, span, process_manager, env_vars).await;
+	}
 }
 
 async fn start_component(
