@@ -1,7 +1,7 @@
 [Desktop Entry]
-Name=COSMIC
-Comment=This session logs you into the COSMIC desktop
-Comment[sv]=Denna session loggar in dig till skrivbordsmiljön COSMIC
+Name=Zinc
+Comment=This session logs you into the Zinc desktop
+Comment[sv]=Denna session loggar in dig till skrivbordsmiljön Zinc
 Exec=/usr/bin/start-cosmic
 Type=Application
 DesktopNames=COSMIC
